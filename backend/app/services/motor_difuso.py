@@ -35,11 +35,15 @@ def grado_pertenencia_trapezoidal(x: float, a: float, b: float, c: float, d: flo
 
     a----b====c----d
     0    1    1    0   (sube de a a b, se mantiene de b a c, baja de c a d)
+
+    La meseta [b, c] se evalúa primero: en un conjunto con hombro (a == b o
+    c == d) el borde del universo debe valer 1. Si se descartara x <= a antes,
+    una cobertura de 0 días no pertenecería a "Crítica" (a = b = 0).
     """
-    if x <= a or x >= d:
-        return 0.0
     if b <= x <= c:
         return 1.0
+    if x <= a or x >= d:
+        return 0.0
     if a < x < b:
         return (x - a) / (b - a) if b != a else 1.0
     if c < x < d:
