@@ -85,7 +85,7 @@ export default function CargarDatos() {
           <p className="text-muted">
             {tipo === "ventas"
               ? "Columnas requeridas: codigo_tela, fecha, metros (opcional: cliente_tipo)."
-              : "Columnas requeridas: codigo_tela, fecha_corte, stock_metros (opcional: rollos)."}
+              : "Columnas requeridas: codigo_tela, fecha_corte, stock_metros (opcional: rollos, en_transito_metros)."}
           </p>
           <button className="btn mt-16" type="submit" disabled={!archivo || cargando}>
             {cargando ? "Procesando..." : "Validar y cargar"}

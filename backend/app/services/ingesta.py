@@ -145,7 +145,7 @@ def validar_inventario(df: pd.DataFrame, db: Session) -> ResultadoValidacion:
             resultado.errores.append(ErrorFila(num_fila, "Stock en metros debe ser un número válido (>= 0)"))
             continue
 
-        rollos_raw = (fila.get("rollos") or "").strip()
+        rollos_raw = _texto_opcional(fila.get("rollos"))
         rollos = None
         if rollos_raw:
             try:
@@ -154,8 +154,27 @@ def validar_inventario(df: pd.DataFrame, db: Session) -> ResultadoValidacion:
                 resultado.errores.append(ErrorFila(num_fila, "Rollos debe ser un número entero"))
                 continue
 
+        transito_raw = _texto_opcional(fila.get("en_transito_metros"))
+        en_transito = Decimal("0")
+        if transito_raw:
+            en_transito = _parsear_decimal(transito_raw)
+            if en_transito is None or en_transito < 0:
+                resultado.errores.append(ErrorFila(num_fila, "En tránsito debe ser un número válido (>= 0)"))
+                continue
+
         resultado.registros_validos.append(
-            InventarioSnapshot(tela_id=tela.id, fecha_corte=fecha_corte, stock_metros=stock, rollos=rollos)
+            InventarioSnapshot(
+                tela_id=tela.id, fecha_corte=fecha_corte, stock_metros=stock, rollos=rollos,
+                en_transito_metros=en_transito,
+            )
         )
 
     return resultado
+
+
+def _texto_opcional(valor) -> str:
+    """Celda opcional como texto; vacía si falta o si Excel la dejó como NaN."""
+    if valor is None:
+        return ""
+    texto = str(valor).strip()
+    return "" if texto.lower() == "nan" else texto

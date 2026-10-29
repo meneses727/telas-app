@@ -47,6 +47,10 @@ class InventarioSnapshot(Base):
     fecha_corte = Column(Date, nullable=False)
     stock_metros = Column(Numeric(10, 2), nullable=False)
     rollos = Column(Integer, nullable=True)
+    # Metros ya pedidos al proveedor que aún no llegan. Se suman al stock para
+    # calcular la posición de inventario; sin esto el sistema vuelve a pedir
+    # lo que ya está en camino.
+    en_transito_metros = Column(Numeric(10, 2), nullable=False, default=0, server_default="0")
 
     tela = relationship("Tela", back_populates="inventarios")
     lote = relationship("LoteImportacion", back_populates="inventarios")

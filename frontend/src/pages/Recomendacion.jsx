@@ -94,6 +94,10 @@ export default function Recomendacion() {
                 <div className="stat-card-value">{resultado.stock_actual_metros ?? "—"} m</div>
               </div>
               <div className="stat-card">
+                <div className="stat-card-label">En tránsito</div>
+                <div className="stat-card-value">{resultado.en_transito_metros ?? 0} m</div>
+              </div>
+              <div className="stat-card">
                 <div className="stat-card-label">Consumo diario</div>
                 <div className="stat-card-value">{resultado.consumo_diario_promedio ?? "—"} m</div>
               </div>

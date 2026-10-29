@@ -29,6 +29,7 @@ class RecomendacionCalculoOut(BaseModel):
     tela_id: int
     tela_codigo: str
     stock_actual_metros: Optional[float] = None
+    en_transito_metros: Optional[float] = None
     consumo_diario_promedio: Optional[float] = None
     cobertura_dias: Optional[float] = None
     demanda_relativa: DemandaRelativaOut

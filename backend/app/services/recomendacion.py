@@ -13,12 +13,11 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from app.models.importacion import VentaHistorica, InventarioSnapshot
-from app.models.tela import Tela, UmbralStock
+from app.models.tela import Tela
 from app.services import mineria as servicio_mineria
 from app.services import motor_difuso as servicio_motor
 
 VENTANA_CONSUMO_DIAS = 30
-CICLO_PEDIDO_DEFECTO_DIAS = 30
 
 
 def _consumo_diario_promedio(db: Session, tela_id: int, fecha_referencia: date) -> float:
@@ -48,18 +47,24 @@ def _cobertura_dias(db: Session, tela_id: int, fecha_referencia: date) -> dict:
                 "motivo": "No hay un registro de inventario cargado para esta tela"}
 
     stock_actual = float(snapshot.stock_metros)
+    en_transito = float(snapshot.en_transito_metros or 0)
+    # Posición de inventario = disponible + ya pedido al proveedor. La cobertura
+    # se mide sobre ella para no volver a pedir lo que ya está en camino.
+    posicion = stock_actual + en_transito
     consumo_diario = _consumo_diario_promedio(db, tela_id, fecha_referencia)
 
     if consumo_diario <= 0:
         # Sin consumo reciente: la cobertura es efectivamente "sin límite" (mucho exceso)
         # si hay stock, o indefinida si tampoco hay stock.
-        cobertura_dias = float("inf") if stock_actual > 0 else 0.0
+        cobertura_dias = float("inf") if posicion > 0 else 0.0
     else:
-        cobertura_dias = stock_actual / consumo_diario
+        cobertura_dias = posicion / consumo_diario
 
     return {
         "cobertura_dias": cobertura_dias,
         "stock_actual": stock_actual,
+        "en_transito": en_transito,
+        "posicion_inventario": posicion,
         "consumo_diario": round(consumo_diario, 3),
         "motivo": None,
     }
@@ -71,9 +76,18 @@ def cobertura_dias_tela(db: Session, tela_id: int, fecha_referencia: date | None
     return _cobertura_dias(db, tela_id, fecha_referencia or date.today())
 
 
-def _ciclo_pedido_dias(db: Session, tela_id: int) -> int:
-    umbral = db.query(UmbralStock).filter(UmbralStock.tela_id == tela_id).first()
-    return umbral.ciclo_pedido_dias if umbral else CICLO_PEDIDO_DEFECTO_DIAS
+def _cantidad_a_pedir(db: Session, pct_reposicion: float, info_cobertura: dict, m_por_rollo: float) -> tuple[float, int]:
+    """Convierte el % de reposición del motor en metros y rollos (Sección 3.6).
+
+    R* fija la cobertura objetivo como fracción del horizonte H (el máximo del
+    universo de 'cobertura'): se pide lo que falta para que la posición de
+    inventario alcance R*/100 · H días de consumo, redondeado a rollos enteros.
+    """
+    horizonte = float(servicio_motor.cargar_variable(db, "cobertura").maximo)
+    objetivo = (pct_reposicion / 100.0) * horizonte * info_cobertura["consumo_diario"]
+    metros = max(0.0, objetivo - info_cobertura["posicion_inventario"])
+    rollos = math.ceil(metros / m_por_rollo) if metros > 0 else 0
+    return metros, rollos
 
 
 def generar_recomendacion_compra(db: Session, tela_id: int, fecha_referencia: date | None = None) -> dict:
@@ -91,6 +105,7 @@ def generar_recomendacion_compra(db: Session, tela_id: int, fecha_referencia: da
         "tela_id": tela.id,
         "tela_codigo": tela.codigo,
         "stock_actual_metros": info_cobertura["stock_actual"],
+        "en_transito_metros": info_cobertura.get("en_transito"),
         "consumo_diario_promedio": info_cobertura["consumo_diario"],
         "cobertura_dias": (
             round(info_cobertura["cobertura_dias"], 1)
@@ -135,9 +150,9 @@ def generar_recomendacion_compra(db: Session, tela_id: int, fecha_referencia: da
             "motivo": "Ninguna regla del motor se activó con estos valores",
         }
 
-    ciclo_dias = _ciclo_pedido_dias(db, tela_id)
-    metros_sugeridos = (resultado_motor["pct_reposicion"] / 100.0) * info_cobertura["consumo_diario"] * ciclo_dias
-    rollos_sugeridos = math.ceil(metros_sugeridos / float(tela.m_por_rollo)) if metros_sugeridos > 0 else 0
+    metros_sugeridos, rollos_sugeridos = _cantidad_a_pedir(
+        db, resultado_motor["pct_reposicion"], info_cobertura, float(tela.m_por_rollo)
+    )
 
     return {
         **base,
@@ -192,9 +207,9 @@ def generar_recomendacion_simulada(
             "metros_sugeridos": None, "rollos_sugeridos": None,
         }
 
-    ciclo_dias = _ciclo_pedido_dias(db, tela_id)
-    metros_sugeridos = (resultado_motor["pct_reposicion"] / 100.0) * info_cobertura["consumo_diario"] * ciclo_dias
-    rollos_sugeridos = math.ceil(metros_sugeridos / float(tela.m_por_rollo)) if metros_sugeridos > 0 else 0
+    metros_sugeridos, rollos_sugeridos = _cantidad_a_pedir(
+        db, resultado_motor["pct_reposicion"], info_cobertura, float(tela.m_por_rollo)
+    )
 
     return {
         "tela_id": tela.id, "tela_codigo": tela.codigo,

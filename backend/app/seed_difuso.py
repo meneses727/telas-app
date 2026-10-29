@@ -15,6 +15,14 @@ Uso: python -m app.seed_difuso
 from app.core.database import SessionLocal
 from app.models.motor_difuso import VariableLinguistica, ConjuntoDifuso, ReglaDifusa
 
+# Los conjuntos de cobertura se calibran con el plazo de entrega del proveedor
+# (L = 15 días, dato de la empresa) y la revisión semanal del inventario (R = 7):
+# por debajo de L días la tela se agota antes de que llegue un pedido (Crítica);
+# entre L y L + R ya no alcanza hasta la siguiente revisión (transición).
+PLAZO_ENTREGA_DIAS = 15
+PERIODO_REVISION_DIAS = 7
+L, R = PLAZO_ENTREGA_DIAS, PERIODO_REVISION_DIAS
+
 # (nombre_variable, minimo, maximo, [(etiqueta, a, b, c, d), ...])
 VARIABLES = [
     (
@@ -22,9 +30,9 @@ VARIABLES = [
         0,
         60,
         [
-            ("Crítica", 0, 0, 5, 15),
-            ("Adecuada", 10, 20, 30, 40),
-            ("Exceso", 35, 45, 60, 60),
+            ("Crítica", 0, 0, L, L + R),
+            ("Adecuada", L, L + R, 40, 50),
+            ("Exceso", 40, 50, 60, 60),
         ],
     ),
     (
