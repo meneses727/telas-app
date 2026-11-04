@@ -4,11 +4,12 @@ import io
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import insert
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_roles
-from app.models.importacion import LoteImportacion
+from app.models.importacion import LoteImportacion, VentaHistorica, InventarioSnapshot
 from app.models.usuario import Usuario
 from app.schemas.importacion import ResultadoImportacion, ErrorFila, LoteImportacionOut
 from app.services.limpieza import vaciar_datos
@@ -24,6 +25,7 @@ from app.services.ingesta import (
 router = APIRouter(prefix="/datos", tags=["carga de datos"])
 
 MAX_ERRORES_PREVIEW = 50
+TAMANO_BLOQUE_INSERCION = 5000
 
 # Guardamos en memoria (por lote) el detalle completo de errores para poder
 # descargarlo luego sin volver a pedir el archivo. En un entorno con varios
@@ -80,9 +82,14 @@ async def cargar_archivo(
     if tipo == "catalogo":
         aplicar_catalogo(db, resultado.registros_validos)
     else:
-        for registro in resultado.registros_validos:
-            registro.lote_id = lote.id
-            db.add(registro)
+        # Inserción por bloques, sin crear un objeto del ORM por fila.
+        tabla = VentaHistorica if tipo == "ventas" else InventarioSnapshot
+        filas = resultado.registros_validos
+        for inicio in range(0, len(filas), TAMANO_BLOQUE_INSERCION):
+            bloque = filas[inicio:inicio + TAMANO_BLOQUE_INSERCION]
+            for registro in bloque:
+                registro["lote_id"] = lote.id
+            db.execute(insert(tabla), bloque)
 
     db.commit()
     db.refresh(lote)

@@ -14,7 +14,7 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.models.tela import Tela, Proveedor, CategoriaTela
-from app.models.importacion import VentaHistorica, InventarioSnapshot
+from app.models.importacion import VentaHistorica, InventarioSnapshot  # noqa: F401  (tablas destino)
 
 COLUMNAS_VENTAS = {"codigo_tela", "fecha", "metros"}
 COLUMNAS_INVENTARIO = {"codigo_tela", "fecha_corte", "stock_metros"}
@@ -60,7 +60,8 @@ def leer_dataframe(contenido: bytes, nombre_archivo: str) -> pd.DataFrame:
 
 def _parsear_fecha(valor: str):
     valor = (valor or "").strip()
-    for formato in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+    # Una celda de fecha de Excel leída como texto llega como "2025-11-01 00:00:00".
+    for formato in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%d/%m/%Y", "%d-%m-%Y"):
         try:
             return datetime.strptime(valor, formato).date()
         except ValueError:
@@ -86,9 +87,11 @@ def validar_ventas(df: pd.DataFrame, db: Session) -> ResultadoValidacion:
     telas_por_codigo = {t.codigo: t for t in db.query(Tela).all()}
 
     resultado = ResultadoValidacion(filas_totales=len(df))
-    for idx, fila in df.iterrows():
+    # Se recorre como lista de diccionarios y se guardan diccionarios (no objetos
+    # del ORM): con decenas de miles de filas, el servidor gratuito se queda sin memoria.
+    for idx, fila in enumerate(df.to_dict("records")):
         num_fila = idx + 2  # +1 por índice 0-based, +1 por la fila de encabezado
-        codigo = (fila.get("codigo_tela") or "").strip().upper()
+        codigo = _texto_opcional(fila.get("codigo_tela")).upper()
         if not codigo:
             resultado.errores.append(ErrorFila(num_fila, "El código de tela está vacío"))
             continue
@@ -97,20 +100,20 @@ def validar_ventas(df: pd.DataFrame, db: Session) -> ResultadoValidacion:
             resultado.errores.append(ErrorFila(num_fila, f"La tela '{codigo}' no está en el catálogo"))
             continue
 
-        fecha = _parsear_fecha(fila.get("fecha"))
+        fecha = _parsear_fecha(_texto_opcional(fila.get("fecha")))
         if fecha is None:
             resultado.errores.append(ErrorFila(num_fila, "Fecha inválida (usa AAAA-MM-DD)"))
             continue
 
-        metros = _parsear_decimal(fila.get("metros"))
+        metros = _parsear_decimal(_texto_opcional(fila.get("metros")))
         if metros is None or metros <= 0:
             resultado.errores.append(ErrorFila(num_fila, "Metros debe ser un número positivo"))
             continue
 
-        cliente_tipo = (fila.get("cliente_tipo") or "").strip() or None
+        cliente_tipo = _texto_opcional(fila.get("cliente_tipo")) or None
 
         resultado.registros_validos.append(
-            VentaHistorica(tela_id=tela.id, fecha=fecha, metros=metros, cliente_tipo=cliente_tipo)
+            {"tela_id": tela.id, "fecha": fecha, "metros": metros, "cliente_tipo": cliente_tipo}
         )
 
     return resultado
@@ -126,9 +129,9 @@ def validar_inventario(df: pd.DataFrame, db: Session) -> ResultadoValidacion:
     telas_por_codigo = {t.codigo: t for t in db.query(Tela).all()}
 
     resultado = ResultadoValidacion(filas_totales=len(df))
-    for idx, fila in df.iterrows():
+    for idx, fila in enumerate(df.to_dict("records")):
         num_fila = idx + 2
-        codigo = (fila.get("codigo_tela") or "").strip().upper()
+        codigo = _texto_opcional(fila.get("codigo_tela")).upper()
         if not codigo:
             resultado.errores.append(ErrorFila(num_fila, "El código de tela está vacío"))
             continue
@@ -137,12 +140,12 @@ def validar_inventario(df: pd.DataFrame, db: Session) -> ResultadoValidacion:
             resultado.errores.append(ErrorFila(num_fila, f"La tela '{codigo}' no está en el catálogo"))
             continue
 
-        fecha_corte = _parsear_fecha(fila.get("fecha_corte"))
+        fecha_corte = _parsear_fecha(_texto_opcional(fila.get("fecha_corte")))
         if fecha_corte is None:
             resultado.errores.append(ErrorFila(num_fila, "Fecha de corte inválida (usa AAAA-MM-DD)"))
             continue
 
-        stock = _parsear_decimal(fila.get("stock_metros"))
+        stock = _parsear_decimal(_texto_opcional(fila.get("stock_metros")))
         if stock is None or stock < 0:
             resultado.errores.append(ErrorFila(num_fila, "Stock en metros debe ser un número válido (>= 0)"))
             continue
@@ -164,12 +167,10 @@ def validar_inventario(df: pd.DataFrame, db: Session) -> ResultadoValidacion:
                 resultado.errores.append(ErrorFila(num_fila, "En tránsito debe ser un número válido (>= 0)"))
                 continue
 
-        resultado.registros_validos.append(
-            InventarioSnapshot(
-                tela_id=tela.id, fecha_corte=fecha_corte, stock_metros=stock, rollos=rollos,
-                en_transito_metros=en_transito,
-            )
-        )
+        resultado.registros_validos.append({
+            "tela_id": tela.id, "fecha_corte": fecha_corte, "stock_metros": stock, "rollos": rollos,
+            "en_transito_metros": en_transito,
+        })
 
     return resultado
 
@@ -190,7 +191,7 @@ def validar_catalogo(df: pd.DataFrame, db: Session) -> ResultadoValidacion:
 
     resultado = ResultadoValidacion(filas_totales=len(df))
     vistos = set()
-    for idx, fila in df.iterrows():
+    for idx, fila in enumerate(df.to_dict("records")):
         num_fila = idx + 2
         codigo = _texto_opcional(fila.get("codigo_tela")).upper()
         if not codigo:
