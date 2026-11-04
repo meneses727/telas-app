@@ -14,6 +14,8 @@ from app.services.ingesta import (
     leer_dataframe,
     validar_ventas,
     validar_inventario,
+    validar_catalogo,
+    aplicar_catalogo,
     TAMANO_MAXIMO_MB,
 )
 
@@ -29,7 +31,7 @@ _ERRORES_POR_LOTE: dict[int, list[ErrorFila]] = {}
 
 @router.post("/cargar", response_model=ResultadoImportacion)
 async def cargar_archivo(
-    tipo: str = Query(..., pattern="^(ventas|inventario)$"),
+    tipo: str = Query(..., pattern="^(ventas|inventario|catalogo)$"),
     archivo: UploadFile = File(...),
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
@@ -50,6 +52,8 @@ async def cargar_archivo(
     try:
         if tipo == "ventas":
             resultado = validar_ventas(df, db)
+        elif tipo == "catalogo":
+            resultado = validar_catalogo(df, db)
         else:
             resultado = validar_inventario(df, db)
     except ValueError as exc:
@@ -71,9 +75,12 @@ async def cargar_archivo(
     db.add(lote)
     db.flush()  # obtiene lote.id antes de asociar los registros
 
-    for registro in resultado.registros_validos:
-        registro.lote_id = lote.id
-        db.add(registro)
+    if tipo == "catalogo":
+        aplicar_catalogo(db, resultado.registros_validos)
+    else:
+        for registro in resultado.registros_validos:
+            registro.lote_id = lote.id
+            db.add(registro)
 
     db.commit()
     db.refresh(lote)

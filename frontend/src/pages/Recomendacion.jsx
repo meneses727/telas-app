@@ -100,11 +100,23 @@ export default function Recomendacion() {
               <div className="stat-card">
                 <div className="stat-card-label">Consumo diario</div>
                 <div className="stat-card-value">{resultado.consumo_diario_promedio ?? "—"} m</div>
+                {resultado.consumo_estimado && (
+                  <div className="text-muted" style={{ fontSize: 12 }}>
+                    Sin ventas en 30 días (posible quiebre): se usa el consumo esperado según el historial
+                  </div>
+                )}
               </div>
               <div className="stat-card">
-                <div className="stat-card-label">Cobertura</div>
+                <div className="stat-card-label">Plazo del proveedor</div>
+                <div className="stat-card-value">{resultado.plazo_entrega_dias ?? "—"} días</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-label">Cobertura a la llegada</div>
                 <div className="stat-card-value">
                   {resultado.cobertura_dias === null ? "—" : `${resultado.cobertura_dias} días`}
+                </div>
+                <div className="text-muted" style={{ fontSize: 12 }}>
+                  Stock que quedará cuando llegue un pedido hecho hoy
                 </div>
               </div>
             </div>

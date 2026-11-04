@@ -58,7 +58,7 @@ export default function CargarDatos() {
     <div>
       <div className="page-header">
         <h1>Cargar datos</h1>
-        <p>Sube el historial de ventas o inventario en CSV o Excel (máx. 10 MB).</p>
+        <p>Sube el catálogo de telas, el historial de ventas o el inventario en CSV o Excel (máx. 10 MB). Carga primero el catálogo.</p>
       </div>
 
       <div className="card">
@@ -68,6 +68,7 @@ export default function CargarDatos() {
             <div className="form-group">
               <label>Tipo de datos</label>
               <select value={tipo} onChange={(e) => setTipo(e.target.value)}>
+                <option value="catalogo">Catálogo de telas</option>
                 <option value="ventas">Ventas</option>
                 <option value="inventario">Inventario</option>
               </select>
@@ -83,7 +84,9 @@ export default function CargarDatos() {
             </div>
           </div>
           <p className="text-muted">
-            {tipo === "ventas"
+            {tipo === "catalogo"
+              ? "Columnas requeridas: codigo_tela, nombre, metros_por_rollo (opcional: tipo_tela, color, proveedor, plazo_entrega_dias, ancho_m). Un código por cada color o diseño."
+              : tipo === "ventas"
               ? "Columnas requeridas: codigo_tela, fecha, metros (opcional: cliente_tipo)."
               : "Columnas requeridas: codigo_tela, fecha_corte, stock_metros (opcional: rollos, en_transito_metros)."}
           </p>

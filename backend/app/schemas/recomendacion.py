@@ -30,8 +30,10 @@ class RecomendacionCalculoOut(BaseModel):
     tela_codigo: str
     stock_actual_metros: Optional[float] = None
     en_transito_metros: Optional[float] = None
+    plazo_entrega_dias: Optional[int] = None
     consumo_diario_promedio: Optional[float] = None
     cobertura_dias: Optional[float] = None
+    consumo_estimado: bool = False
     demanda_relativa: DemandaRelativaOut
     tendencia: TendenciaOut
     grados_cobertura: dict[str, float] = {}

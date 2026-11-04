@@ -13,11 +13,13 @@ from decimal import Decimal, InvalidOperation
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from app.models.tela import Tela
+from app.models.tela import Tela, Proveedor, CategoriaTela
 from app.models.importacion import VentaHistorica, InventarioSnapshot
 
 COLUMNAS_VENTAS = {"codigo_tela", "fecha", "metros"}
 COLUMNAS_INVENTARIO = {"codigo_tela", "fecha_corte", "stock_metros"}
+COLUMNAS_CATALOGO = {"codigo_tela", "nombre", "metros_por_rollo"}
+ANCHO_DEFECTO_M = Decimal("1.50")
 
 TAMANO_MAXIMO_MB = 10
 
@@ -170,6 +172,116 @@ def validar_inventario(df: pd.DataFrame, db: Session) -> ResultadoValidacion:
         )
 
     return resultado
+
+
+def validar_catalogo(df: pd.DataFrame, db: Session) -> ResultadoValidacion:
+    """Catálogo de telas: un código por tipo de tela y color/diseño.
+
+    Columnas requeridas: codigo_tela, nombre, metros_por_rollo.
+    Opcionales: tipo_tela, color, proveedor, plazo_entrega_dias, ancho_m.
+    Cada fila válida se devuelve como un diccionario; `aplicar_catalogo` crea
+    o actualiza la tela, su tipo (categoría) y su proveedor con su plazo.
+    """
+    columnas = {c.strip().lower() for c in df.columns}
+    faltantes = COLUMNAS_CATALOGO - columnas
+    if faltantes:
+        raise ValueError(f"Faltan columnas requeridas: {', '.join(sorted(faltantes))}")
+    df.columns = [c.strip().lower() for c in df.columns]
+
+    resultado = ResultadoValidacion(filas_totales=len(df))
+    vistos = set()
+    for idx, fila in df.iterrows():
+        num_fila = idx + 2
+        codigo = _texto_opcional(fila.get("codigo_tela")).upper()
+        if not codigo:
+            resultado.errores.append(ErrorFila(num_fila, "El código de tela está vacío"))
+            continue
+        if len(codigo) > 30:
+            resultado.errores.append(ErrorFila(num_fila, "El código de tela tiene más de 30 caracteres"))
+            continue
+        if codigo in vistos:
+            resultado.errores.append(ErrorFila(num_fila, f"El código '{codigo}' está repetido en el archivo"))
+            continue
+        nombre = _texto_opcional(fila.get("nombre"))
+        if not nombre:
+            resultado.errores.append(ErrorFila(num_fila, "El nombre de la tela está vacío"))
+            continue
+        m_rollo = _parsear_decimal(_texto_opcional(fila.get("metros_por_rollo")))
+        if m_rollo is None or m_rollo <= 0:
+            resultado.errores.append(ErrorFila(num_fila, "Metros por rollo debe ser un número positivo"))
+            continue
+        ancho = ANCHO_DEFECTO_M
+        ancho_raw = _texto_opcional(fila.get("ancho_m"))
+        if ancho_raw:
+            ancho = _parsear_decimal(ancho_raw)
+            if ancho is None or ancho <= 0:
+                resultado.errores.append(ErrorFila(num_fila, "El ancho debe ser un número positivo"))
+                continue
+        proveedor = _texto_opcional(fila.get("proveedor"))
+        plazo = None
+        plazo_raw = _texto_opcional(fila.get("plazo_entrega_dias"))
+        if plazo_raw:
+            try:
+                plazo = int(float(plazo_raw))
+            except ValueError:
+                plazo = None
+            if plazo is None or plazo <= 0:
+                resultado.errores.append(ErrorFila(num_fila, "El plazo de entrega debe ser un número de días positivo"))
+                continue
+            if not proveedor:
+                resultado.errores.append(ErrorFila(num_fila, "Indica el proveedor al que corresponde el plazo de entrega"))
+                continue
+
+        vistos.add(codigo)
+        resultado.registros_validos.append({
+            "codigo": codigo,
+            "nombre": nombre,
+            "tipo_tela": _texto_opcional(fila.get("tipo_tela")) or None,
+            "color": _texto_opcional(fila.get("color")) or None,
+            "proveedor": proveedor or None,
+            "plazo": plazo,
+            "m_por_rollo": m_rollo,
+            "ancho_m": ancho,
+        })
+    return resultado
+
+
+def aplicar_catalogo(db: Session, filas: list[dict]) -> None:
+    proveedores = {p.nombre.lower(): p for p in db.query(Proveedor).all()}
+    categorias = {c.nombre.lower(): c for c in db.query(CategoriaTela).all()}
+    telas = {t.codigo: t for t in db.query(Tela).all()}
+    for f in filas:
+        proveedor = None
+        if f["proveedor"]:
+            proveedor = proveedores.get(f["proveedor"].lower())
+            if proveedor is None:
+                proveedor = Proveedor(nombre=f["proveedor"], lead_time_dias=f["plazo"] or 60)
+                db.add(proveedor)
+                db.flush()
+                proveedores[f["proveedor"].lower()] = proveedor
+            elif f["plazo"]:
+                proveedor.lead_time_dias = f["plazo"]
+        categoria = None
+        if f["tipo_tela"]:
+            categoria = categorias.get(f["tipo_tela"].lower())
+            if categoria is None:
+                categoria = CategoriaTela(nombre=f["tipo_tela"])
+                db.add(categoria)
+                db.flush()
+                categorias[f["tipo_tela"].lower()] = categoria
+        tela = telas.get(f["codigo"])
+        if tela is None:
+            tela = Tela(codigo=f["codigo"])
+            db.add(tela)
+            telas[f["codigo"]] = tela
+        tela.nombre = f["nombre"]
+        tela.color = f["color"]
+        tela.m_por_rollo = f["m_por_rollo"]
+        tela.ancho_m = f["ancho_m"]
+        if categoria is not None:
+            tela.categoria_id = categoria.id
+        if proveedor is not None:
+            tela.proveedor_id = proveedor.id
 
 
 def _texto_opcional(valor) -> str:

@@ -5,7 +5,7 @@ lógica estándar de gestión de inventarios (cobertura crítica → siempre
 reponer; exceso → casi nunca reponer salvo demanda alta y ascendente a la
 vez). Falta validarla con la jefa de planificación de Corporación Textil
 Montalvan antes de usarla para decisiones reales. El diseño es:
-  - Cobertura (días): Crítica / Adecuada / Exceso        (3 conjuntos)
+  - Cobertura a la llegada (días): Crítica / Adecuada / Exceso (3 conjuntos)
   - Demanda relativa (ratio real/esperado): Normal / Alta (2 conjuntos)
   - Tendencia (score -1..1): Estable / Ascendente         (2 conjuntos)
   → 3 x 2 x 2 = 12 reglas (no 27; ver nota de diseño en el chat con Adrián).
@@ -15,13 +15,16 @@ Uso: python -m app.seed_difuso
 from app.core.database import SessionLocal
 from app.models.motor_difuso import VariableLinguistica, ConjuntoDifuso, ReglaDifusa
 
-# Los conjuntos de cobertura se calibran con el plazo de entrega del proveedor
-# (L = 15 días, dato de la empresa) y la revisión semanal del inventario (R = 7):
-# por debajo de L días la tela se agota antes de que llegue un pedido (Crítica);
-# entre L y L + R ya no alcanza hasta la siguiente revisión (transición).
-PLAZO_ENTREGA_DIAS = 15
+# La cobertura es la "cobertura a la llegada": días de stock que quedarán cuando
+# llegue un pedido hecho hoy (posición de inventario / consumo − plazo del
+# proveedor). Así los conjuntos no dependen del plazo de cada proveedor (50 a 70
+# días en la empresa):
+#   - Crítica: por debajo de R días a la llegada (revisión semanal, R = 7), la tela
+#     se agota antes de que llegue el pedido de la siguiente revisión.
+#   - Exceso: desde 40 días a la llegada (dato de la jefa de planificación).
 PERIODO_REVISION_DIAS = 7
-L, R = PLAZO_ENTREGA_DIAS, PERIODO_REVISION_DIAS
+EXCESO_DIAS = 40
+R = PERIODO_REVISION_DIAS
 
 # (nombre_variable, minimo, maximo, [(etiqueta, a, b, c, d), ...])
 VARIABLES = [
@@ -30,9 +33,9 @@ VARIABLES = [
         0,
         60,
         [
-            ("Crítica", 0, 0, L, L + R),
-            ("Adecuada", L, L + R, 40, 50),
-            ("Exceso", 40, 50, 60, 60),
+            ("Crítica", 0, 0, 0, R),
+            ("Adecuada", 0, R, EXCESO_DIAS - 10, EXCESO_DIAS),
+            ("Exceso", EXCESO_DIAS - 10, EXCESO_DIAS, 60, 60),
         ],
     ),
     (

@@ -18,6 +18,9 @@ from app.services import mineria as servicio_mineria
 from app.services import motor_difuso as servicio_motor
 
 VENTANA_CONSUMO_DIAS = 30
+# Plazo típico de los proveedores de la empresa (entre 50 y 70 días). Se usa
+# solo si la tela no tiene un proveedor con su propio plazo registrado.
+PLAZO_ENTREGA_DEFECTO_DIAS = 60
 
 
 def _consumo_diario_promedio(db: Session, tela_id: int, fecha_referencia: date) -> float:
@@ -35,7 +38,21 @@ def _consumo_diario_promedio(db: Session, tela_id: int, fecha_referencia: date) 
     return total / VENTANA_CONSUMO_DIAS
 
 
+def _plazo_entrega_dias(tela: Tela | None) -> int:
+    if tela is not None and tela.proveedor is not None and tela.proveedor.lead_time_dias:
+        return int(tela.proveedor.lead_time_dias)
+    return PLAZO_ENTREGA_DEFECTO_DIAS
+
+
 def _cobertura_dias(db: Session, tela_id: int, fecha_referencia: date) -> dict:
+    """Cobertura a la llegada: días de stock que quedarán cuando llegue un
+    pedido hecho hoy.
+
+    Se mide sobre la posición de inventario (disponible + ya pedido al
+    proveedor), para no volver a pedir lo que está en camino, y se le resta el
+    plazo de entrega del proveedor de la tela. Un valor negativo indica que la
+    tela se agotará antes de que llegue ese pedido.
+    """
     snapshot = (
         db.query(InventarioSnapshot)
         .filter(InventarioSnapshot.tela_id == tela_id)
@@ -46,26 +63,40 @@ def _cobertura_dias(db: Session, tela_id: int, fecha_referencia: date) -> dict:
         return {"cobertura_dias": None, "stock_actual": None, "consumo_diario": None,
                 "motivo": "No hay un registro de inventario cargado para esta tela"}
 
+    tela = db.query(Tela).filter(Tela.id == tela_id).first()
+    plazo = _plazo_entrega_dias(tela)
     stock_actual = float(snapshot.stock_metros)
     en_transito = float(snapshot.en_transito_metros or 0)
-    # Posición de inventario = disponible + ya pedido al proveedor. La cobertura
-    # se mide sobre ella para no volver a pedir lo que ya está en camino.
     posicion = stock_actual + en_transito
     consumo_diario = _consumo_diario_promedio(db, tela_id, fecha_referencia)
+    consumo_estimado = False
+    if consumo_diario <= 0:
+        # Sin ventas en la ventana reciente: suele ser una tela agotada (la venta
+        # que no se pudo atender no queda registrada). Se usa el consumo esperado
+        # según su historial y su índice estacional, y se avisa al planificador.
+        esperado = servicio_mineria.demanda_relativa(db, tela_id, fecha_referencia).get("esperado")
+        if esperado:
+            consumo_diario = float(esperado) / VENTANA_CONSUMO_DIAS
+            consumo_estimado = True
 
     if consumo_diario <= 0:
-        # Sin consumo reciente: la cobertura es efectivamente "sin límite" (mucho exceso)
-        # si hay stock, o indefinida si tampoco hay stock.
-        cobertura_dias = float("inf") if posicion > 0 else 0.0
+        # Sin consumo reciente: si hay stock, la cobertura es "sin límite" (exceso);
+        # si tampoco hay stock, se toma 0.
+        cobertura_posicion = float("inf") if posicion > 0 else 0.0
+        cobertura_llegada = cobertura_posicion
     else:
-        cobertura_dias = posicion / consumo_diario
+        cobertura_posicion = posicion / consumo_diario
+        cobertura_llegada = cobertura_posicion - plazo
 
     return {
-        "cobertura_dias": cobertura_dias,
+        "cobertura_dias": cobertura_llegada,
+        "cobertura_posicion_dias": cobertura_posicion,
+        "plazo_entrega_dias": plazo,
         "stock_actual": stock_actual,
         "en_transito": en_transito,
         "posicion_inventario": posicion,
         "consumo_diario": round(consumo_diario, 3),
+        "consumo_estimado": consumo_estimado,
         "motivo": None,
     }
 
@@ -76,15 +107,28 @@ def cobertura_dias_tela(db: Session, tela_id: int, fecha_referencia: date | None
     return _cobertura_dias(db, tela_id, fecha_referencia or date.today())
 
 
+def cobertura_maxima_llegada(db: Session) -> float:
+    """Cobertura a la llegada que se busca con R* = 100 %: el final de la zona
+    plenamente adecuada (punto 'c' del conjunto Adecuada, 30 días), donde empieza
+    la transición a Exceso (desde 40 días, dato de la jefa de planificación).
+    Así el pedido nunca apunta a un stock que ya podría considerarse exceso."""
+    for conjunto in servicio_motor.cargar_conjuntos(db, "cobertura"):
+        if conjunto.etiqueta == "Adecuada":
+            return float(conjunto.c)
+    return float(servicio_motor.cargar_variable(db, "cobertura").maximo)
+
+
 def _cantidad_a_pedir(db: Session, pct_reposicion: float, info_cobertura: dict, m_por_rollo: float) -> tuple[float, int]:
     """Convierte el % de reposición del motor en metros y rollos (Sección 3.6).
 
-    R* fija la cobertura objetivo como fracción del horizonte H (el máximo del
-    universo de 'cobertura'): se pide lo que falta para que la posición de
-    inventario alcance R*/100 · H días de consumo, redondeado a rollos enteros.
+    R* fija cuántos días de stock deben quedar cuando llegue el pedido, como
+    fracción de H, el final de la zona plenamente adecuada (30 días). Se pide
+    lo que falta para que la posición de inventario cubra el plazo de entrega
+    más esos días, redondeado a rollos enteros.
     """
-    horizonte = float(servicio_motor.cargar_variable(db, "cobertura").maximo)
-    objetivo = (pct_reposicion / 100.0) * horizonte * info_cobertura["consumo_diario"]
+    horizonte = cobertura_maxima_llegada(db)
+    dias_objetivo = info_cobertura["plazo_entrega_dias"] + (pct_reposicion / 100.0) * horizonte
+    objetivo = dias_objetivo * info_cobertura["consumo_diario"]
     metros = max(0.0, objetivo - info_cobertura["posicion_inventario"])
     rollos = math.ceil(metros / m_por_rollo) if metros > 0 else 0
     return metros, rollos
@@ -106,12 +150,16 @@ def generar_recomendacion_compra(db: Session, tela_id: int, fecha_referencia: da
         "tela_codigo": tela.codigo,
         "stock_actual_metros": info_cobertura["stock_actual"],
         "en_transito_metros": info_cobertura.get("en_transito"),
+        "plazo_entrega_dias": info_cobertura.get("plazo_entrega_dias"),
         "consumo_diario_promedio": info_cobertura["consumo_diario"],
+        # Una cobertura infinita (stock sin ninguna venta en el historial) no se
+        # puede enviar en JSON: se muestra vacía, y el motor la trata como Exceso.
         "cobertura_dias": (
             round(info_cobertura["cobertura_dias"], 1)
             if info_cobertura["cobertura_dias"] not in (None, float("inf"))
-            else info_cobertura["cobertura_dias"]
+            else None
         ),
+        "consumo_estimado": info_cobertura.get("consumo_estimado", False),
         "demanda_relativa": info_demanda,
         "tendencia": info_tendencia,
     }

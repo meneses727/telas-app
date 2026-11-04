@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, Numeric, Date, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Numeric, Date, DateTime, ForeignKey, Index
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -37,6 +37,8 @@ class VentaHistorica(Base):
     tela = relationship("Tela", back_populates="ventas")
     lote = relationship("LoteImportacion", back_populates="ventas")
 
+    __table_args__ = (Index("ix_ventas_tela_fecha", "tela_id", "fecha"),)
+
 
 class InventarioSnapshot(Base):
     __tablename__ = "inventario_snapshots"
@@ -54,3 +56,5 @@ class InventarioSnapshot(Base):
 
     tela = relationship("Tela", back_populates="inventarios")
     lote = relationship("LoteImportacion", back_populates="inventarios")
+
+    __table_args__ = (Index("ix_inventario_tela_fecha", "tela_id", "fecha_corte"),)

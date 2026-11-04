@@ -21,8 +21,9 @@ from sqlalchemy.orm import Session, joinedload
 from app.models.tela import Tela
 from app.services.recomendacion import cobertura_dias_tela
 
-DIAS_COBERTURA_CRITICA = 15  # coincide con el punto 'd' del conjunto Crítica
-DIAS_COBERTURA_EXCESO = 35  # coincide con el punto 'a' del conjunto Exceso
+# Cobertura a la llegada (días que quedarán cuando llegue un pedido hecho hoy).
+DIAS_COBERTURA_CRITICA = 7  # coincide con el punto 'd' del conjunto Crítica
+DIAS_COBERTURA_EXCESO = 40  # coincide con el punto 'b' del conjunto Exceso (dato de la jefa)
 DIAS_ANIO = 365
 
 
@@ -84,7 +85,7 @@ def obtener_resumen(
                 "nombre": tela.nombre,
                 "color": tela.color,
                 "categoria": tela.categoria.nombre if tela.categoria else None,
-                "cobertura_dias": round(cobertura, 1) if cobertura not in (None, float("inf")) else cobertura,
+                "cobertura_dias": round(cobertura, 1) if cobertura not in (None, float("inf")) else None,
                 "estado": estado_tela,
                 "accion": _accion_para_estado(estado_tela),
             }

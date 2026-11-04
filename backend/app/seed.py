@@ -9,7 +9,8 @@ from app.models.tela import CategoriaTela, Proveedor
 
 ROLES_BASE = ["Administrador", "Planificador"]
 CATEGORIAS_BASE = ["Algodón", "Poliéster", "Mezcla", "Drill", "Jersey"]
-PROVEEDORES_BASE = [("Textil Piura S.A.", 10), ("Importadora Andina", 20), ("Hilos del Sur", 7)]
+# Plazos de entrega de la empresa: entre 50 y 70 días.
+PROVEEDORES_BASE = [("Textil Piura S.A.", 50), ("Importadora Andina", 60), ("Hilos del Sur", 70)]
 
 
 def run():
@@ -43,8 +44,11 @@ def run():
             if not db.query(CategoriaTela).filter(CategoriaTela.nombre == nombre_cat).first():
                 db.add(CategoriaTela(nombre=nombre_cat))
         for nombre_prov, lead_time in PROVEEDORES_BASE:
-            if not db.query(Proveedor).filter(Proveedor.nombre == nombre_prov).first():
+            proveedor = db.query(Proveedor).filter(Proveedor.nombre == nombre_prov).first()
+            if proveedor is None:
                 db.add(Proveedor(nombre=nombre_prov, lead_time_dias=lead_time))
+            else:
+                proveedor.lead_time_dias = lead_time  # proveedores de demostración
         db.commit()
 
         print("Seed completado.")

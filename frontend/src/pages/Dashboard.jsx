@@ -57,7 +57,7 @@ export default function Dashboard() {
           <div className="stat-card-value">{resumen?.rotacion_inventario_anual ?? "—"}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-card-label">Cobertura promedio (días)</div>
+          <div className="stat-card-label">Cobertura promedio a la llegada (días)</div>
           <div className="stat-card-value">{resumen?.cobertura_promedio_dias ?? "—"}</div>
         </div>
         <div className="stat-card alert-critical">
@@ -118,7 +118,7 @@ export default function Dashboard() {
             <thead>
               <tr>
                 <th>Tela</th>
-                <th>Días de cobertura</th>
+                <th>Cobertura a la llegada (días)</th>
                 <th></th>
                 <th>Estado</th>
                 <th></th>
@@ -135,7 +135,7 @@ export default function Dashboard() {
                     <div className="degree-bar-track">
                       <div
                         className="degree-bar-fill"
-                        style={{ width: `${Math.min(100, ((t.cobertura_dias ?? 0) / 60) * 100)}%` }}
+                        style={{ width: `${Math.min(100, (Math.max(0, t.cobertura_dias ?? 0) / 60) * 100)}%` }}
                       />
                     </div>
                   </td>
