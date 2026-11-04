@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import api, { mensajeError } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 
 export default function CargarDatos() {
   const [tipo, setTipo] = useState("ventas");
@@ -8,6 +9,11 @@ export default function CargarDatos() {
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(false);
   const [historial, setHistorial] = useState([]);
+  const { usuario } = useAuth();
+  const esAdmin = usuario?.rol === "Administrador";
+  const [confirmacion, setConfirmacion] = useState("");
+  const [vaciando, setVaciando] = useState(false);
+  const [mensajeVaciado, setMensajeVaciado] = useState("");
 
   const cargarHistorial = useCallback(async () => {
     try {
@@ -40,6 +46,27 @@ export default function CargarDatos() {
       setError(mensajeError(err, "No se pudo procesar el archivo."));
     } finally {
       setCargando(false);
+    }
+  }
+
+  async function vaciarDatos(e) {
+    e.preventDefault();
+    setVaciando(true);
+    setMensajeVaciado("");
+    setError("");
+    try {
+      const { data } = await api.post("/datos/vaciar", { confirmacion });
+      const b = data.borrados;
+      setMensajeVaciado(
+        `Datos borrados: ${b.telas} telas, ${b.ventas} ventas y ${b.inventarios} cortes de inventario. Ya puedes cargar el catálogo.`
+      );
+      setConfirmacion("");
+      setResultado(null);
+      cargarHistorial();
+    } catch (err) {
+      setError(mensajeError(err, "No se pudieron borrar los datos."));
+    } finally {
+      setVaciando(false);
     }
   }
 
@@ -140,6 +167,29 @@ export default function CargarDatos() {
               </button>
             </>
           )}
+        </div>
+      )}
+
+      {esAdmin && (
+        <div className="card">
+          <div className="card-title">Vaciar datos (solo administrador)</div>
+          <p className="text-muted">
+            Borra el catálogo de telas, las ventas, el inventario, las propuestas y las simulaciones para volver a
+            cargar los archivos desde cero. Se conservan los usuarios y las reglas del motor. No se puede deshacer.
+          </p>
+          <form onSubmit={vaciarDatos}>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Escribe VACIAR para confirmar</label>
+                <input value={confirmacion} onChange={(e) => setConfirmacion(e.target.value)} placeholder="VACIAR" />
+              </div>
+            </div>
+            <button className="btn mt-16" type="submit" disabled={confirmacion.trim().toUpperCase() !== "VACIAR" || vaciando}
+              style={{ background: "var(--color-danger)" }}>
+              {vaciando ? "Borrando..." : "Vaciar datos"}
+            </button>
+          </form>
+          {mensajeVaciado && <div className="alert alert-success mt-16">{mensajeVaciado}</div>}
         </div>
       )}
 

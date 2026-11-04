@@ -3,13 +3,15 @@ import io
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_roles
 from app.models.importacion import LoteImportacion
 from app.models.usuario import Usuario
 from app.schemas.importacion import ResultadoImportacion, ErrorFila, LoteImportacionOut
+from app.services.limpieza import vaciar_datos
 from app.services.ingesta import (
     leer_dataframe,
     validar_ventas,
@@ -145,3 +147,24 @@ def descargar_informe_errores(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=errores_lote_{lote_id}.csv"},
     )
+
+
+class ConfirmacionVaciado(BaseModel):
+    confirmacion: str
+
+
+@router.post("/vaciar")
+def vaciar_base_de_datos(
+    data: ConfirmacionVaciado,
+    db: Session = Depends(get_db),
+    _admin: Usuario = Depends(require_roles("Administrador")),
+):
+    """Borra el catálogo, las ventas, el inventario y los resultados para volver
+    a cargar los datos desde cero. Solo para el administrador, y solo si escribe
+    la palabra VACIAR. Conserva usuarios, roles y el motor difuso."""
+    if data.confirmacion.strip().upper() != "VACIAR":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Escribe VACIAR para confirmar el borrado")
+    borrados = vaciar_datos(db)
+    _ERRORES_POR_LOTE.clear()
+    return {"borrados": borrados}
