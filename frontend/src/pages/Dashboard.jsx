@@ -46,7 +46,7 @@ export default function Dashboard() {
     <div>
       <div className="page-header">
         <h1>Panel de control</h1>
-        <p>Datos de ejemplo · Corte al {resumen?.fecha_referencia || "—"}</p>
+        <p>Corte al {resumen?.fecha_referencia || "—"}</p>
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}
