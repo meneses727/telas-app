@@ -102,13 +102,19 @@ export default function Recomendacion() {
                 <div className="stat-card-value">{resultado.consumo_diario_promedio ?? "—"} m</div>
                 {resultado.consumo_estimado && (
                   <div className="text-muted" style={{ fontSize: 12 }}>
-                    Sin ventas en 30 días (posible quiebre): se usa el consumo esperado según el historial
+                    Sin ventas en 90 días (posible quiebre): se usa el consumo esperado según el historial
                   </div>
                 )}
               </div>
               <div className="stat-card">
                 <div className="stat-card-label">Plazo del proveedor</div>
                 <div className="stat-card-value">{resultado.plazo_entrega_dias ?? "—"} días</div>
+                {resultado.horizonte_pedido_dias && (
+                  <div className="text-muted" style={{ fontSize: 12 }}>
+                    Se pide cada {resultado.ciclo_pedido_semanas} semanas: el pedido cubre{" "}
+                    {resultado.horizonte_pedido_dias} días (plazo + días hasta el siguiente pedido)
+                  </div>
+                )}
               </div>
               <div className="stat-card">
                 <div className="stat-card-label">Cobertura a la llegada</div>
@@ -116,7 +122,7 @@ export default function Recomendacion() {
                   {resultado.cobertura_dias === null ? "—" : `${resultado.cobertura_dias} días`}
                 </div>
                 <div className="text-muted" style={{ fontSize: 12 }}>
-                  Stock que quedará cuando llegue un pedido hecho hoy
+                  Stock que quedará cuando llegue el siguiente pedido
                 </div>
               </div>
             </div>
